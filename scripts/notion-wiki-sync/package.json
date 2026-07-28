@@ -1,0 +1,14 @@
+{
+  "name": "notion-wiki-sync",
+  "version": "1.0.0",
+  "description": "Notion 페이지를 GitHub Wiki로 주기 동기화",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "sync": "node sync.mjs"
+  },
+  "dependencies": {
+    "@notionhq/client": "^2.2.15",
+    "notion-to-md": "^3.1.9"
+  }
+}
