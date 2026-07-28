@@ -32,7 +32,7 @@ export async function listAllChildren(notion, blockId) {
   return results;
 }
 
-/** 데이터베이스 내 페이지 전체 수집 */
+/** 데이터베이스 내 페이지 전체 수집 (템플릿 행은 API 가 제외해서 돌려준다) */
 export async function queryAllDbPages(notion, databaseId) {
   const results = [];
   let cursor;
@@ -48,18 +48,59 @@ export async function queryAllDbPages(notion, databaseId) {
   return results;
 }
 
+export function retrieveDatabase(notion, databaseId) {
+  return notion.databases.retrieve({ database_id: databaseId });
+}
+
 export function retrievePage(notion, pageId) {
   return notion.pages.retrieve({ page_id: pageId });
 }
 
-/** 페이지 객체에서 제목 추출 */
-export function extractTitle(page) {
-  const props = page?.properties || {};
+/** rich_text 배열 → 평문 */
+export function plainText(richText) {
+  return (richText || []).map((t) => t.plain_text).join("").trim();
+}
+
+/** 페이지/데이터베이스 객체에서 제목 추출 */
+export function extractTitle(entity) {
+  if (Array.isArray(entity?.title)) {
+    const text = plainText(entity.title);
+    if (text) return text;
+  }
+  const props = entity?.properties || {};
   for (const prop of Object.values(props)) {
     if (prop?.type === "title") {
-      const text = (prop.title || []).map((t) => t.plain_text).join("").trim();
+      const text = plainText(prop.title);
       if (text) return text;
     }
   }
   return "Untitled";
+}
+
+/** 이모지 아이콘만 사용한다. 업로드/외부 아이콘은 위키에서 표현할 방법이 마땅치 않아 생략. */
+export function extractEmojiIcon(entity) {
+  const icon = entity?.icon;
+  if (icon?.type === "emoji" && icon.emoji) return icon.emoji;
+  return "";
+}
+
+/** 데이터베이스 제목에 이모지가 접두로 붙어 있으면 아이콘으로 분리한다. */
+export function splitLeadingEmoji(title) {
+  const m = String(title || "").match(/^(\p{Extended_Pictographic}️?)\s*(.*)$/u);
+  if (!m) return { icon: "", text: title };
+  return { icon: m[1], text: m[2].trim() || title };
+}
+
+/** 관계(relation) 속성값에서 대상 페이지 ID 배열을 꺼낸다. */
+export function relationIds(page, propName) {
+  const prop = page?.properties?.[propName];
+  if (prop?.type !== "relation") return [];
+  return (prop.relation || []).map((r) => normalizeId(r.id));
+}
+
+/** date 속성값을 ISO 문자열(YYYY-MM-DD)로 꺼낸다. 없으면 빈 문자열. */
+export function dateValue(page, propName) {
+  const prop = page?.properties?.[propName];
+  if (prop?.type !== "date") return "";
+  return prop.date?.start || "";
 }

@@ -9,6 +9,13 @@ export function loadConfig() {
     rootPageId: process.env.NOTION_ROOT_PAGE_ID || "",
     // Home(위키 첫 페이지)에 표시할 페이지 ID. 지정 시 루트 대신 이 페이지 내용을 Home 으로 쓴다.
     homePageId: process.env.NOTION_HOME_PAGE_ID || "",
+    // 자기참조 관계로 계층을 만드는 속성 이름. 미지정 시 스키마에서 자동 추론.
+    parentPropOverride: process.env.NOTION_DB_PARENT_PROP || "",
+    // 트리에서 통째로 빼는 페이지/데이터베이스 ID 목록 (쉼표 구분)
+    skipIds: (process.env.NOTION_SKIP_IDS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
     outputDir: path.resolve(process.env.OUTPUT_DIR || "./wiki"),
     assetsSubdir: "assets",
   };

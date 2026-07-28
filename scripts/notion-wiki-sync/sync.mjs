@@ -1,7 +1,7 @@
 // Notion → GitHub Wiki 동기화 스크립트 (진입점)
 //
 // 동작 개요
-//  1. NOTION_ROOT_PAGE_ID 로부터 하위 페이지 트리를 재귀적으로 수집
+//  1. NOTION_ROOT_PAGE_ID 로부터 하위 트리 수집 (데이터베이스는 그룹으로, 자기참조 관계는 계층으로)
 //  2. 각 페이지를 마크다운으로 변환 (notion-to-md)
 //  3. 이미지(만료되는 Notion URL)를 다운로드해 위키에 함께 커밋하고 링크를 로컬 경로로 치환
 //  4. 노션 내부 페이지 링크를 위키 페이지 링크로 치환
@@ -19,7 +19,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import { loadConfig, validateConfig } from "./lib/config.mjs";
-import { createClient, extractTitle, normalizeId, retrievePage } from "./lib/notion.mjs";
+import { createClient, extractEmojiIcon, extractTitle, normalizeId, retrievePage } from "./lib/notion.mjs";
 import { buildTree, createTreeContext, flatten } from "./lib/tree.mjs";
 import { createRenderer } from "./lib/markdown.mjs";
 import { renderSidebar } from "./lib/sidebar.mjs";
@@ -48,11 +48,11 @@ async function cleanOutput(dir) {
   }
 }
 
-async function resolveRootTitle(notion, config) {
+async function resolveRootPage(notion, config) {
   // Home 표시 제목: NOTION_HOME_PAGE_ID 가 있으면 그 제목을, 없으면 루트 제목을 쓴다.
   try {
     const page = await retrievePage(notion, config.homePageId || config.rootPageId);
-    return extractTitle(page);
+    return { title: extractTitle(page), icon: extractEmojiIcon(page), url: page.url || "" };
   } catch (e) {
     fail(
       `페이지 조회 실패: ${e.message}\n` +
@@ -67,18 +67,22 @@ async function main() {
   if (errors.length) fail(errors.join("\n"));
 
   const notion = createClient(config.notionToken);
-  const rootTitle = await resolveRootTitle(notion, config);
+  const root = await resolveRootPage(notion, config);
 
   console.log("[notion-wiki-sync] 페이지 트리 수집 중...");
   const ctx = createTreeContext({ notion, config, warn });
   // 트리 루트는 항상 NOTION_ROOT_PAGE_ID. 하위 페이지 탐색 기준.
-  const tree = await buildTree(ctx, { pageId: config.rootPageId, title: rootTitle, isRoot: true });
-  // Home 으로 쓰는 페이지로의 내부 링크도 Home 으로 해석되도록 매핑
-  if (config.homePageId) ctx.idToSlug.set(normalizeId(config.homePageId), "Home");
+  const tree = await buildTree(ctx, {
+    rootId: config.rootPageId,
+    rootTitle: root.title,
+    rootIcon: root.icon,
+    homeId: config.homePageId,
+  });
 
   const allNodes = flatten(tree);
+  ctx.idToNode = new Map(allNodes.map((n) => [normalizeId(n.id), n]));
   stats.pagesFound = allNodes.length;
-  console.log(`[notion-wiki-sync] 총 ${allNodes.length}개 페이지 발견`);
+  console.log(`[notion-wiki-sync] 총 ${allNodes.length}개 문서 발견`);
 
   await cleanOutput(config.outputDir);
 
@@ -97,7 +101,7 @@ async function main() {
   );
   console.log("  ✓ _Sidebar.md");
 
-  await writeSummary(stats, { rootTitle });
+  await writeSummary(stats, { rootTitle: root.title });
   console.log("[notion-wiki-sync] 완료");
 }
 

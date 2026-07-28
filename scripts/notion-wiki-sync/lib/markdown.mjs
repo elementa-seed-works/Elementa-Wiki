@@ -1,6 +1,10 @@
 // 페이지 → 마크다운 변환
 //
-// 제목 헤더 + 노션 본문 + 하위 페이지 링크 목록 + 공통 꼬리말로 문서를 만든다.
+// 산출 문서 구조
+//   [🏠 Home](Home) › [📑 Wiki](Wiki) › **현재 문서**   ← 위치 표시
+//   # 아이콘 제목
+//   <노션 본문>
+//   ## 하위 문서 / 문서 목록                              ← 직속 하위만
 
 import { NotionToMarkdown } from "notion-to-md";
 import { createHash } from "node:crypto";
@@ -9,20 +13,45 @@ import path from "node:path";
 
 import { normalizeId } from "./notion.mjs";
 
-const FOOTER = `\n\n---\n_이 문서는 Notion 에서 자동 동기화되었습니다. 직접 편집하지 마세요._\n`;
+const NOTION_HOSTS = /(?:www\.)?notion\.so|app\.notion\.com|[a-z0-9-]+\.notion\.site/i;
+const NOTION_ASSET_HOSTS = /(amazonaws\.com|notion\.so|notion-static\.com|notion\.site)/i;
+const FOOTER = `---\n_이 문서는 Notion 에서 자동 동기화되었습니다. 직접 편집하지 마세요._`;
 
 export function createRenderer({ notion, ctx, config, stats, warn }) {
   const n2m = new NotionToMarkdown({ notionClient: notion });
 
-  // 하위 페이지/DB 링크는 본문에 인라인으로 렌더링하지 않는다.
-  // (탐색은 별도 "## 하위 페이지" 섹션과 사이드바가 담당 → 중복/깨진 텍스트 방지)
+  // 하위 페이지/DB 링크는 본문에 인라인으로 남기지 않는다.
+  // (탐색은 "하위 문서" 섹션과 사이드바가 담당 → 중복·깨진 텍스트 방지)
   n2m.setCustomTransformer("child_page", async () => "");
   n2m.setCustomTransformer("child_database", async () => "");
+  n2m.setCustomTransformer("table_of_contents", async () => "");
+  n2m.setCustomTransformer("breadcrumb", async () => "");
+  n2m.setCustomTransformer("unsupported", async () => "");
+  n2m.setCustomTransformer("link_to_page", async (block) => {
+    const targetId = block?.link_to_page?.page_id || block?.link_to_page?.database_id || "";
+    const target = ctx.idToNode.get(normalizeId(targetId));
+    return target ? `- ${wikiLink(target)}` : "";
+  });
 
   const assetsDir = path.join(config.outputDir, config.assetsSubdir);
 
   async function renderPage(node) {
-    // Home 은 NOTION_HOME_PAGE_ID 가 지정되면 그 페이지 내용을 사용
+    const body = node.kind === "db" ? "" : await renderNotionBody(node);
+
+    const parts = [];
+    const crumb = breadcrumb(node);
+    if (crumb) parts.push(crumb);
+    parts.push(`# ${titleWithIcon(node)}`);
+    if (body) parts.push(body);
+    const index = renderChildIndex(node);
+    if (index) parts.push(index);
+    parts.push(FOOTER);
+
+    return parts.join("\n\n") + "\n";
+  }
+
+  async function renderNotionBody(node) {
+    // Home 은 NOTION_HOME_PAGE_ID 가 있으면 그 페이지 내용을 쓴다.
     const sourceId = node.slug === "Home" && config.homePageId ? config.homePageId : node.id;
     let md = "";
     try {
@@ -31,33 +60,21 @@ export function createRenderer({ notion, ctx, config, stats, warn }) {
     } catch (e) {
       warn(`"${node.title}" 변환 실패: ${e.message}`);
       stats.pageErrors.push({ title: node.title, message: e.message });
-      md = `> ⚠ 이 페이지 변환에 실패했습니다: ${e.message}\n`;
+      return `> [!WARNING]\n> 이 페이지를 마크다운으로 변환하지 못했습니다: ${e.message}`;
     }
-
     md = await processImages(md);
     md = rewriteInternalLinks(md);
-
-    const header = `# ${node.title}\n\n`;
-
-    // 하위 페이지가 있으면 본문 아래에 하이퍼링크 목록을 자동 삽입
-    let childSection = "";
-    if (node.children.length > 0) {
-      const links = node.children.map((c) => `- [${c.title}](${c.slug})`).join("\n");
-      childSection = `\n\n## 하위 페이지\n\n${links}\n`;
-    }
-
-    return header + md + childSection + FOOTER;
+    return tidy(md);
   }
 
-  /** 마크다운 내 이미지 URL 을 로컬 경로로 치환 */
   async function processImages(markdown) {
     const matches = [...markdown.matchAll(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g)];
     let out = markdown;
     for (const [full, alt, url] of matches) {
-      // Notion S3 / 첨부 이미지만 다운로드 (외부 정적 이미지는 그대로 둠)
-      if (!/(amazonaws\.com|notion\.so|notion-static\.com)/.test(url)) continue;
+      // 만료되는 노션 첨부만 내려받는다. 외부 정적 이미지는 원본 링크를 그대로 둔다.
+      if (!NOTION_ASSET_HOSTS.test(url)) continue;
       const local = await downloadImage(url);
-      if (local) out = out.replace(full, `![${alt}](${local})`);
+      if (local) out = out.replace(full, `![${alt || "이미지"}](${local})`);
     }
     return out;
   }
@@ -80,18 +97,71 @@ export function createRenderer({ notion, ctx, config, stats, warn }) {
     }
   }
 
-  /** 노션 페이지 링크(https://www.notion.so/...<32hex>)를 위키 슬러그로 치환 */
+  /** 노션 내부 페이지 링크를 위키 슬러그로 치환한다. 위키에 없는 페이지면 원본 URL 을 남긴다. */
   function rewriteInternalLinks(markdown) {
-    return markdown.replace(/https?:\/\/(?:www\.)?notion\.so\/[^\s)]*/g, (url) => {
-      const hex =
-        url.match(/([0-9a-fA-F]{32})/) ||
-        url.match(/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/);
+    const urlPattern = new RegExp(`https?://(?:${NOTION_HOSTS.source})/[^\\s)\\]]*`, "gi");
+    return markdown.replace(urlPattern, (url) => {
+      const hex = url.match(/([0-9a-fA-F]{32})/) || url.match(/([0-9a-fA-F-]{36})/);
       if (!hex) return url;
-      return ctx.idToSlug.get(normalizeId(hex[1])) || url; // 위키에 없는 페이지면 원본 유지
+      return ctx.idToSlug.get(normalizeId(hex[1])) || url;
     });
   }
 
   return { renderPage };
+}
+
+// ---------------------------------------------------------------------------
+// 문서 조각
+// ---------------------------------------------------------------------------
+
+function breadcrumb(node) {
+  const chain = [];
+  for (let cur = node.parent; cur; cur = cur.parent) chain.unshift(cur);
+  if (!chain.length) return "";
+  const links = chain.map((n) => (n.parent ? wikiLink(n) : "[🏠 Home](Home)"));
+  return `${links.join(" › ")} › **${escapeMd(titleWithIcon(node))}**`;
+}
+
+function renderChildIndex(node) {
+  if (!node.children.length) return "";
+
+  const heading =
+    node.kind === "db"
+      ? `## 📄 문서 ${node.children.length}건`
+      : `## 📂 하위 문서 ${node.children.length}건`;
+
+  const body = node.dateProp && node.children.every((c) => c.date)
+    ? renderDateTable(node.children)
+    : renderList(node.children);
+
+  return `${heading}\n\n${body}`;
+}
+
+function renderDateTable(children) {
+  const rows = children.map((c) => `| ${c.date} | ${wikiLink(c)} |`);
+  return ["| 날짜 | 문서 |", "| --- | --- |", ...rows].join("\n");
+}
+
+function renderList(children) {
+  return children
+    .map((c) => {
+      const sub = c.children.length ? ` — 하위 ${c.children.length}건` : "";
+      return `- ${wikiLink(c)}${sub}`;
+    })
+    .join("\n");
+}
+
+export function titleWithIcon(node) {
+  return node.icon ? `${node.icon} ${node.title}` : node.title;
+}
+
+function wikiLink(node) {
+  return `[${escapeMd(titleWithIcon(node))}](${node.slug})`;
+}
+
+/** 링크 텍스트/표 셀에서 마크다운 구조를 깨는 문자만 최소로 이스케이프한다. */
+function escapeMd(text) {
+  return String(text).replace(/([\[\]|])/g, "\\$1");
 }
 
 function guessExtension(url, contentType) {
@@ -102,4 +172,16 @@ function guessExtension(url, contentType) {
   if (contentType.includes("svg")) return ".svg";
   const m = url.split("?")[0].match(/\.(png|jpe?g|gif|webp|svg)$/i);
   return m ? `.${m[1].toLowerCase()}` : ".png";
+}
+
+/** 변환기가 남긴 빈 줄·공백을 정리한다. */
+function tidy(markdown) {
+  return markdown
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/, ""))
+    .join("\n")
+    .replace(/^(?:>\s*)+$/gm, "") // 내용 없는 인용 줄
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
