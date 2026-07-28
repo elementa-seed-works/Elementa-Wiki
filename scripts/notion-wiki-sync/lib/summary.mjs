@@ -9,22 +9,26 @@ export function createStats() {
     filesWritten: 0,
     pageErrors: [], // { title, message }
     imagesDownloaded: 0,
+    imagesSkipped: 0,
     imageErrors: 0,
+    warnings: 0,
   };
 }
 
-export async function writeSummary(stats, { rootTitle }) {
+export async function writeSummary(stats, { rootTitle, outputDir, preview }) {
   const elapsedSec = ((Date.now() - stats.startMs) / 1000).toFixed(1);
   const ok = stats.pageErrors.length === 0;
 
   const lines = [
     `## 🔄 Notion → Wiki 동기화 결과`,
     "",
-    `- 상태: ${ok ? "✅ 성공" : "⚠️ 일부 실패"}`,
+    `- 상태: ${ok ? "✅ 성공" : "⚠️ 일부 실패"}${preview ? " (미리보기 실행)" : ""}`,
     `- 기준 페이지: ${rootTitle}`,
+    `- 출력 경로: \`${outputDir}\``,
     `- 동기화된 페이지: ${stats.filesWritten} / ${stats.pagesFound}`,
     `- 변환 실패: ${stats.pageErrors.length}건`,
-    `- 이미지: 다운로드 ${stats.imagesDownloaded}개 · 실패 ${stats.imageErrors}개`,
+    `- 이미지: 다운로드 ${stats.imagesDownloaded}개 · 생략 ${stats.imagesSkipped}개 · 실패 ${stats.imageErrors}개`,
+    `- 경고: ${stats.warnings}건`,
     `- 소요 시간: ${elapsedSec}s`,
     "",
   ];

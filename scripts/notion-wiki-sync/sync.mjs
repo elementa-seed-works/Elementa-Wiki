@@ -3,21 +3,20 @@
 // 동작 개요
 //  1. NOTION_ROOT_PAGE_ID 로부터 하위 트리 수집 (데이터베이스는 그룹으로, 자기참조 관계는 계층으로)
 //  2. 각 페이지를 마크다운으로 변환 (notion-to-md)
-//  3. 이미지(만료되는 Notion URL)를 다운로드해 위키에 함께 커밋하고 링크를 로컬 경로로 치환
-//  4. 노션 내부 페이지 링크를 위키 페이지 링크로 치환
+//  3. 만료되는 노션 이미지 URL 을 내려받아 assets/ 에 두고 링크를 로컬 경로로 치환
+//  4. 노션 내부 페이지 링크를 위키 슬러그로 치환
 //  5. Home.md / <슬러그>.md / _Sidebar.md / _Footer.md 생성
 //
-// 필요한 환경변수
-//  - NOTION_TOKEN         : Notion 내부 통합(integration) 토큰
-//  - NOTION_ROOT_PAGE_ID  : 동기화 기준이 되는 최상위 페이지 ID
-//  - NOTION_HOME_PAGE_ID  : (선택) Home 에 표시할 페이지 ID
-//  - OUTPUT_DIR           : 결과를 쓸 디렉터리 (워크플로에서 clone 한 wiki 경로)
+// 실행
+//  node sync.mjs                 # OUTPUT_DIR(기본 ../../wiki)에 생성
+//  node sync.mjs --preview       # <repo>/wiki-preview 에 생성 (로컬 검수용)
+//  node sync.mjs --skip-images   # 이미지 다운로드 생략
 
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import { loadConfig, validateConfig } from "./lib/config.mjs";
+import { loadConfig, loadDotEnv, validateConfig } from "./lib/config.mjs";
 import { createClient, extractEmojiIcon, extractTitle, normalizeId, retrievePage } from "./lib/notion.mjs";
 import { buildTree, createTreeContext, flatten } from "./lib/tree.mjs";
 import { createRenderer } from "./lib/markdown.mjs";
@@ -32,6 +31,7 @@ function fail(msg) {
 }
 
 function warn(msg) {
+  stats.warnings++;
   console.warn(`[warn] ${msg}`);
 }
 
@@ -48,9 +48,10 @@ async function cleanOutput(dir) {
 }
 
 async function resolveRootPage(notion, config) {
-  // Home 표시 제목: NOTION_HOME_PAGE_ID 가 있으면 그 제목을, 없으면 루트 제목을 쓴다.
+  // Home 표시 제목: NOTION_HOME_PAGE_ID 가 있으면 그 페이지 제목을, 없으면 루트 제목을 쓴다.
+  const titleSourceId = config.homePageId || config.rootPageId;
   try {
-    const page = await retrievePage(notion, config.homePageId || config.rootPageId);
+    const page = await retrievePage(notion, titleSourceId);
     return { title: extractTitle(page), icon: extractEmojiIcon(page), url: page.url || "" };
   } catch (e) {
     fail(
@@ -61,6 +62,7 @@ async function resolveRootPage(notion, config) {
 }
 
 async function main() {
+  loadDotEnv();
   const config = loadConfig();
   const errors = validateConfig(config);
   if (errors.length) fail(errors.join("\n"));
@@ -68,9 +70,8 @@ async function main() {
   const notion = createClient(config.notionToken);
   const root = await resolveRootPage(notion, config);
 
-  console.log("[notion-wiki-sync] 페이지 트리 수집 중...");
+  console.log(`[notion-wiki-sync] 페이지 트리 수집 중... (출력: ${config.outputDir})`);
   const ctx = createTreeContext({ notion, config, warn });
-  // 트리 루트는 항상 NOTION_ROOT_PAGE_ID. 하위 페이지 탐색 기준.
   const tree = await buildTree(ctx, {
     rootId: config.rootPageId,
     rootTitle: root.title,
@@ -93,16 +94,15 @@ async function main() {
     console.log(`  ✓ ${node.slug}.md  (${node.title})`);
   }
 
-  const wikiTitle = process.env.WIKI_TITLE || "Elementa Wiki";
   await writeFile(
     path.join(config.outputDir, "_Sidebar.md"),
-    renderSidebar(tree, { wikiTitle }),
+    renderSidebar(tree, { wikiTitle: config.wikiTitle }),
     "utf-8",
   );
   await writeFile(
     path.join(config.outputDir, "_Footer.md"),
     renderFooter({
-      wikiTitle,
+      wikiTitle: config.wikiTitle,
       syncedAt: new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC",
       sourceUrl: root.url,
     }),
@@ -110,7 +110,11 @@ async function main() {
   );
   console.log("  ✓ _Sidebar.md\n  ✓ _Footer.md");
 
-  await writeSummary(stats, { rootTitle: root.title });
+  await writeSummary(stats, {
+    rootTitle: root.title,
+    outputDir: config.outputDir,
+    preview: config.preview,
+  });
   console.log("[notion-wiki-sync] 완료");
 }
 

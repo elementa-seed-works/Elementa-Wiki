@@ -73,6 +73,10 @@ export function createRenderer({ notion, ctx, config, stats, warn }) {
     for (const [full, alt, url] of matches) {
       // 만료되는 노션 첨부만 내려받는다. 외부 정적 이미지는 원본 링크를 그대로 둔다.
       if (!NOTION_ASSET_HOSTS.test(url)) continue;
+      if (config.skipImages) {
+        stats.imagesSkipped++;
+        continue;
+      }
       const local = await downloadImage(url);
       if (local) out = out.replace(full, `![${alt || "이미지"}](${local})`);
     }
