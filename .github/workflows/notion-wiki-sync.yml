@@ -45,6 +45,10 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_ROOT_PAGE_ID: ${{ vars.NOTION_ROOT_PAGE_ID }}
           NOTION_HOME_PAGE_ID: ${{ vars.NOTION_HOME_PAGE_ID }}
+          # 아래 셋은 선택. 미등록이면 빈 값이라 스크립트가 기본 동작으로 넘어간다.
+          NOTION_DB_PARENT_PROP: ${{ vars.NOTION_DB_PARENT_PROP }}
+          NOTION_SKIP_IDS: ${{ vars.NOTION_SKIP_IDS }}
+          WIKI_TITLE: ${{ vars.WIKI_TITLE }}
           OUTPUT_DIR: ${{ github.workspace }}/wiki
         run: node sync.mjs
 
