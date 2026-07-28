@@ -6,6 +6,7 @@ Notion을 원본(source of truth)으로 두고, 매시간 GitHub Wiki로 한 방
 
 ```
 .github/workflows/notion-wiki-sync.yml   매시간/수동 실행 워크플로
+.github/scripts/discord-notify.mjs       실행 결과 Discord 알림
 scripts/notion-wiki-sync/
 ├── sync.mjs          진입점 (오케스트레이션)
 ├── .env.example      로컬 실행용 설정 예시
@@ -60,6 +61,7 @@ Settings → Secrets and variables → Actions 에서 아래를 등록한다.
 
 - `NOTION_TOKEN` (필수) = 1번 통합 토큰
 - `WIKI_TOKEN` (사실상 필수) = 위키 push 용 classic PAT(`repo` 스코프). 아래 "토큰 두 개의 차이" 참고
+- `DISCORD_WEBHOOK_URL` (선택) = 결과 알림용 웹훅. 아래 "Discord 알림" 참고
 
 **Variables 탭**
 
@@ -70,6 +72,7 @@ Settings → Secrets and variables → Actions 에서 아래를 등록한다.
 | `NOTION_DB_PARENT_PROP` | 선택 | 데이터베이스 계층을 만드는 자기참조 관계 속성 이름. 비우면 자동 추론 |
 | `NOTION_SKIP_IDS` | 선택 | 트리에서 통째로 뺄 페이지/DB ID (쉼표 구분) |
 | `WIKI_TITLE` | 선택 | 사이드바·푸터에 쓰는 위키 이름 (기본 `Elementa Wiki`) |
+| `DISCORD_NOTIFY_ON` | 선택 | 알림 조건: `change`(기본) / `always` / `failure` |
 
 **그 외**
 
@@ -86,6 +89,50 @@ Settings → Secrets and variables → Actions 에서 아래를 등록한다.
 
 `Actions` 탭 → `Notion → Wiki Sync` → `Run workflow` 로 수동 실행해 결과를 확인한다.
 이후에는 매시간 정각(UTC 기준)에 자동 실행된다.
+
+## Discord 알림
+
+워크플로가 끝나면(실패·취소 포함) 실행 결과를 Discord 채널로 보낸다. Secret 을 등록하지 않으면
+알림 스텝이 스스로 빠지므로, 쓰지 않아도 워크플로는 그대로 돈다.
+
+### 설정
+
+1. Discord 서버 → 알림 받을 채널 → `채널 편집` → `연동` → `웹후크` → `새 웹후크` → URL 복사
+2. GitHub 저장소 → Settings → Secrets and variables → Actions → Secrets 탭 →
+   `DISCORD_WEBHOOK_URL` 로 등록
+
+### 알림 조건
+
+기본값은 `change` 다. 매시간 도는 워크플로라 "변경 없음"까지 보내면 하루 24번 울린다.
+
+| `DISCORD_NOTIFY_ON` | 알림을 보내는 때 |
+| --- | --- |
+| `change` (기본) | 위키에 실제로 push 했을 때 + 실패·취소했을 때 |
+| `always` | 매 실행마다 |
+| `failure` | 실패·취소했을 때만 |
+
+### 메시지 내용
+
+| 상태 | 제목 |
+| --- | --- |
+| 성공 + 변경 있음 | ✅ 위키 동기화 완료 (갱신된 문서 수) |
+| 성공 + 변경 없음 | ➖ 위키 변경 없음 |
+| 취소 | ⏹️ 위키 동기화 취소 |
+| 실패 | ❌ 위키 동기화 실패 (변환 실패한 페이지 제목 최대 5건) |
+
+본문에는 동기화 문서 수, 변환 실패 건수, 이미지 수, 소요 시간과 실행 로그·위키 링크가 붙는다.
+
+알림 전송이 실패해도 워크플로는 성공으로 끝난다. 위키 동기화는 이미 끝난 뒤이고,
+알림 실패로 워크플로를 실패 처리할 이유가 없기 때문이다. 대신 실행 요약에 경고가 남는다.
+
+### 로컬에서 메시지 모양 확인
+
+전송하지 않고 페이로드만 출력한다.
+
+```powershell
+$env:DISCORD_DRY_RUN="1"; $env:JOB_STATUS="success"; $env:CHANGED="true"
+node .github/scripts/discord-notify.mjs
+```
 
 ## 트리 구성 규칙
 

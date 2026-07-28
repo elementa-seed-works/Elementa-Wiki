@@ -6,6 +6,7 @@ Notion의 SeedWork 페이지 트리를 GitHub Wiki로 한 방향 동기화하는
 | 경로 | 내용 |
 | --- | --- |
 | [.github/workflows/notion-wiki-sync.yml](.github/workflows/notion-wiki-sync.yml) | 매시간/수동 실행 워크플로 |
+| [.github/scripts/discord-notify.mjs](.github/scripts/discord-notify.mjs) | 실행 결과 Discord 알림 |
 | [scripts/notion-wiki-sync/](scripts/notion-wiki-sync/) | 변환 스크립트와 설정 문서 |
 | `wiki-preview/` | 로컬에서 뽑아본 위키 산출물(검수용, push 대상 아님) |
 

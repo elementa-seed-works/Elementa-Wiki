@@ -18,6 +18,7 @@ export function createStats() {
 export async function writeSummary(stats, { rootTitle, outputDir, preview }) {
   const elapsedSec = ((Date.now() - stats.startMs) / 1000).toFixed(1);
   const ok = stats.pageErrors.length === 0;
+  await writeStepOutputs(stats, { rootTitle, elapsedSec });
 
   const lines = [
     `## 🔄 Notion → Wiki 동기화 결과`,
@@ -51,5 +52,28 @@ export async function writeSummary(stats, { rootTitle, outputDir, preview }) {
     } catch (e) {
       console.warn(`[warn] step summary 기록 실패: ${e.message}`);
     }
+  }
+}
+
+/** 후속 스텝(알림 등)이 읽을 수 있게 통계를 GitHub Actions step output 으로 내보낸다. */
+async function writeStepOutputs(stats, { rootTitle, elapsedSec }) {
+  if (!process.env.GITHUB_OUTPUT) return;
+  const outputs = {
+    root_title: rootTitle.replace(/[\r\n]+/g, " "),
+    pages_found: stats.pagesFound,
+    files_written: stats.filesWritten,
+    page_errors: stats.pageErrors.length,
+    images_downloaded: stats.imagesDownloaded,
+    image_errors: stats.imageErrors,
+    warnings: stats.warnings,
+    elapsed_sec: elapsedSec,
+    // 실패한 페이지 제목은 알림 본문에 넣기 좋게 앞 5건만
+    failed_titles: stats.pageErrors.slice(0, 5).map((e) => e.title).join(", ").replace(/[\r\n]+/g, " "),
+  };
+  const body = Object.entries(outputs).map(([k, v]) => `${k}=${v}`).join("\n");
+  try {
+    await writeFile(process.env.GITHUB_OUTPUT, body + "\n", { flag: "a" });
+  } catch (e) {
+    console.warn(`[warn] step output 기록 실패: ${e.message}`);
   }
 }

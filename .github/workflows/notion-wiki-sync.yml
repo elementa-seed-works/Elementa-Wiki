@@ -40,6 +40,7 @@ jobs:
           git clone "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" wiki
 
       - name: Notion → 마크다운 동기화
+        id: sync
         working-directory: scripts/notion-wiki-sync
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
@@ -53,6 +54,7 @@ jobs:
         run: node sync.mjs
 
       - name: 변경사항 commit & push
+        id: push
         working-directory: wiki
         run: |
           git config user.name "notion-wiki-bot"
@@ -60,8 +62,33 @@ jobs:
           git add -A
           if git diff --cached --quiet; then
             echo "변경사항 없음 — push 생략"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "files_changed=0" >> "$GITHUB_OUTPUT"
           else
+            count=$(git diff --cached --name-only | wc -l)
             git commit -m "chore: Notion 자동 동기화 ($(date -u +'%Y-%m-%d %H:%M UTC'))"
             # 위키의 기본 브랜치(master 또는 main)로 그대로 push
             git push origin "HEAD:$(git rev-parse --abbrev-ref HEAD)"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "files_changed=$count" >> "$GITHUB_OUTPUT"
           fi
+
+      # 앞 단계가 실패해도 알림은 보낸다. DISCORD_WEBHOOK_URL 이 없으면 스크립트가 알아서 빠진다.
+      - name: Discord 알림
+        if: always()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          NOTIFY_ON: ${{ vars.DISCORD_NOTIFY_ON }}
+          JOB_STATUS: ${{ job.status }}
+          CHANGED: ${{ steps.push.outputs.changed }}
+          FILES_CHANGED: ${{ steps.push.outputs.files_changed }}
+          ROOT_TITLE: ${{ steps.sync.outputs.root_title }}
+          PAGES_FOUND: ${{ steps.sync.outputs.pages_found }}
+          FILES_WRITTEN: ${{ steps.sync.outputs.files_written }}
+          PAGE_ERRORS: ${{ steps.sync.outputs.page_errors }}
+          FAILED_TITLES: ${{ steps.sync.outputs.failed_titles }}
+          IMAGES_DOWNLOADED: ${{ steps.sync.outputs.images_downloaded }}
+          ELAPSED_SEC: ${{ steps.sync.outputs.elapsed_sec }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WIKI_URL: ${{ github.server_url }}/${{ github.repository }}/wiki
+        run: node .github/scripts/discord-notify.mjs
