@@ -23,9 +23,21 @@ scripts/notion-wiki-sync/
 이 파일들은 **위키 저장소가 아니라 코드 저장소(`Elementa-Wiki`)의 기본 브랜치**에 넣는다.
 워크플로가 실행되면서 위키(`Elementa-Wiki.wiki.git`)에 결과를 push 한다.
 
-## 로컬에서 결과 미리보기
+## 결과 미리보기
 
-위키에 push 하지 않고 산출물을 눈으로 확인할 수 있다.
+위키를 덮어쓰기 전에 산출물을 먼저 확인하는 두 가지 방법이 있다.
+
+### Actions 에서 (권장)
+
+`Actions` 탭 → `Notion → Wiki Sync` → `Run workflow` → **미리보기 체크박스를 켜고** 실행한다.
+위키 clone·push·Discord 알림을 모두 건너뛰고, 생성된 문서를 `wiki-preview` 아티팩트로 올린다(보관 7일).
+실행 페이지 하단에서 zip 으로 받아 열어보면 된다.
+
+노션 토큰이 로컬에 없어도 되고, 위키 쓰기 권한도 필요 없다.
+
+### 로컬에서
+
+토큰이 손에 있고 반복해서 빠르게 돌려보고 싶을 때만 쓴다.
 
 ```powershell
 cd scripts/notion-wiki-sync
@@ -87,8 +99,9 @@ Settings → Secrets and variables → Actions 에서 아래를 등록한다.
 
 ### 4. 첫 실행
 
-`Actions` 탭 → `Notion → Wiki Sync` → `Run workflow` 로 수동 실행해 결과를 확인한다.
-이후에는 매시간 정각(UTC 기준)에 자동 실행된다.
+`Actions` 탭 → `Notion → Wiki Sync` → `Run workflow`.
+처음에는 미리보기 체크박스를 켜고 돌려 산출물을 확인한 뒤, 체크를 끄고 다시 돌려 위키에 반영한다.
+이후에는 매시간 정각(UTC 기준)에 자동 실행된다(미리보기 아님).
 
 ## Discord 알림
 

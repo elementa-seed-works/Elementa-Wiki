@@ -4,7 +4,12 @@ on:
   schedule:
     # 매시간 정각(UTC) 실행. GitHub 부하에 따라 몇 분 지연될 수 있습니다.
     - cron: "0 * * * *"
-  workflow_dispatch: {} # 수동 실행 버튼
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "미리보기: 위키에 push 하지 않고 결과를 아티팩트로만 올린다"
+        type: boolean
+        default: false
 
 # 위키(같은 저장소의 .wiki.git)에 push 하기 위한 권한
 permissions:
@@ -32,6 +37,8 @@ jobs:
         run: npm ci || npm install
 
       - name: 위키 저장소 clone
+        # 미리보기 실행에서는 push 하지 않으므로 clone 도 건너뛴다(위키 쓰기 권한 없이도 돌아감).
+        if: github.event.inputs.dry_run != 'true'
         # WIKI_TOKEN(개인 PAT)이 있으면 그것을, 없으면 기본 GITHUB_TOKEN 을 사용.
         # 조직 정책으로 기본 토큰 쓰기가 막힌 경우 WIKI_TOKEN(classic PAT, repo 스코프)을 등록하면 된다.
         env:
@@ -53,8 +60,17 @@ jobs:
           OUTPUT_DIR: ${{ github.workspace }}/wiki
         run: node sync.mjs
 
+      - name: 산출물 아티팩트 업로드 (미리보기 실행)
+        if: github.event.inputs.dry_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wiki-preview
+          path: wiki
+          retention-days: 7
+
       - name: 변경사항 commit & push
         id: push
+        if: github.event.inputs.dry_run != 'true'
         working-directory: wiki
         run: |
           git config user.name "notion-wiki-bot"
@@ -74,8 +90,9 @@ jobs:
           fi
 
       # 앞 단계가 실패해도 알림은 보낸다. DISCORD_WEBHOOK_URL 이 없으면 스크립트가 알아서 빠진다.
+      # 미리보기 실행은 위키를 바꾸지 않으므로 알리지 않는다.
       - name: Discord 알림
-        if: always()
+        if: always() && github.event.inputs.dry_run != 'true'
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
           NOTIFY_ON: ${{ vars.DISCORD_NOTIFY_ON }}
