@@ -32,8 +32,10 @@ jobs:
         run: npm ci || npm install
 
       - name: 위키 저장소 clone
+        # WIKI_TOKEN(개인 PAT)이 있으면 그것을, 없으면 기본 GITHUB_TOKEN 을 사용.
+        # 조직 정책으로 기본 토큰 쓰기가 막힌 경우 WIKI_TOKEN(classic PAT, repo 스코프)을 등록하면 된다.
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.WIKI_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           git clone "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" wiki
 
@@ -42,6 +44,7 @@ jobs:
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_ROOT_PAGE_ID: ${{ vars.NOTION_ROOT_PAGE_ID }}
+          NOTION_HOME_PAGE_ID: ${{ vars.NOTION_HOME_PAGE_ID }}
           OUTPUT_DIR: ${{ github.workspace }}/wiki
         run: node sync.mjs
 
