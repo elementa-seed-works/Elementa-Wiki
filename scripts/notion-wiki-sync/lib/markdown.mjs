@@ -5,6 +5,8 @@
 //   # 아이콘 제목
 //   <노션 본문>
 //   ## 하위 문서 / 문서 목록                              ← 직속 하위만
+//
+// 문서 하단 공통 문구는 각 페이지에 넣지 않고 _Footer.md 하나로 처리한다.
 
 import { NotionToMarkdown } from "notion-to-md";
 import { createHash } from "node:crypto";
@@ -15,7 +17,6 @@ import { normalizeId } from "./notion.mjs";
 
 const NOTION_HOSTS = /(?:www\.)?notion\.so|app\.notion\.com|[a-z0-9-]+\.notion\.site/i;
 const NOTION_ASSET_HOSTS = /(amazonaws\.com|notion\.so|notion-static\.com|notion\.site)/i;
-const FOOTER = `---\n_이 문서는 Notion 에서 자동 동기화되었습니다. 직접 편집하지 마세요._`;
 
 export function createRenderer({ notion, ctx, config, stats, warn }) {
   const n2m = new NotionToMarkdown({ notionClient: notion });
@@ -45,7 +46,6 @@ export function createRenderer({ notion, ctx, config, stats, warn }) {
     if (body) parts.push(body);
     const index = renderChildIndex(node);
     if (index) parts.push(index);
-    parts.push(FOOTER);
 
     return parts.join("\n\n") + "\n";
   }

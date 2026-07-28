@@ -5,8 +5,7 @@
 //  2. 각 페이지를 마크다운으로 변환 (notion-to-md)
 //  3. 이미지(만료되는 Notion URL)를 다운로드해 위키에 함께 커밋하고 링크를 로컬 경로로 치환
 //  4. 노션 내부 페이지 링크를 위키 페이지 링크로 치환
-//  5. 최상위 페이지 → Home.md, 나머지 → <슬러그>.md 로 저장
-//  6. 페이지 계층을 <details> 토글 형식의 _Sidebar.md 로 자동 생성
+//  5. Home.md / <슬러그>.md / _Sidebar.md / _Footer.md 생성
 //
 // 필요한 환경변수
 //  - NOTION_TOKEN         : Notion 내부 통합(integration) 토큰
@@ -22,7 +21,7 @@ import { loadConfig, validateConfig } from "./lib/config.mjs";
 import { createClient, extractEmojiIcon, extractTitle, normalizeId, retrievePage } from "./lib/notion.mjs";
 import { buildTree, createTreeContext, flatten } from "./lib/tree.mjs";
 import { createRenderer } from "./lib/markdown.mjs";
-import { renderSidebar } from "./lib/sidebar.mjs";
+import { renderFooter, renderSidebar } from "./lib/sidebar.mjs";
 import { createStats, writeSummary } from "./lib/summary.mjs";
 
 const stats = createStats();
@@ -94,12 +93,22 @@ async function main() {
     console.log(`  ✓ ${node.slug}.md  (${node.title})`);
   }
 
+  const wikiTitle = process.env.WIKI_TITLE || "Elementa Wiki";
   await writeFile(
     path.join(config.outputDir, "_Sidebar.md"),
-    renderSidebar(tree, { wikiTitle: "Elementa Wiki" }),
+    renderSidebar(tree, { wikiTitle }),
     "utf-8",
   );
-  console.log("  ✓ _Sidebar.md");
+  await writeFile(
+    path.join(config.outputDir, "_Footer.md"),
+    renderFooter({
+      wikiTitle,
+      syncedAt: new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC",
+      sourceUrl: root.url,
+    }),
+    "utf-8",
+  );
+  console.log("  ✓ _Sidebar.md\n  ✓ _Footer.md");
 
   await writeSummary(stats, { rootTitle: root.title });
   console.log("[notion-wiki-sync] 완료");
