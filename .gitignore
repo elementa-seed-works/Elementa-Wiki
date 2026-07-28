@@ -1,0 +1,6 @@
+node_modules/
+.env
+.env.local
+
+# 워크플로가 실행 중에 clone 하는 위키 작업 디렉터리 (미리보기는 wiki-preview/ 로 커밋한다)
+/wiki/
