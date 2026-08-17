@@ -3,13 +3,8 @@ name: Notion → Wiki Sync
 on:
   schedule:
     # 매시간 정각(UTC) 실행. GitHub 부하에 따라 몇 분 지연될 수 있습니다.
-    - cron: "0 * * * *"
+    - cron: "0 */6 * * *"
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "미리보기: 위키에 push 하지 않고 결과를 아티팩트로만 올린다"
-        type: boolean
-        default: false
 
 # 위키(같은 저장소의 .wiki.git)에 push 하기 위한 권한
 permissions:
