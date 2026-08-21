@@ -39,6 +39,11 @@ function envFlag(name) {
   return v === "1" || v === "true" || v === "yes";
 }
 
+function envNumber(name, fallback) {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 /**
  * CLI 인자와 환경변수를 합쳐 설정 객체를 만든다.
  *
@@ -46,6 +51,7 @@ function envFlag(name) {
  *  --preview        : OUTPUT_DIR 을 <repo>/wiki-preview 로 고정 (로컬 검수용)
  *  --out <dir>      : 출력 디렉터리 직접 지정
  *  --skip-images    : 이미지 다운로드 생략 (빠른 반복 확인용)
+ *  --full           : 상태 파일을 무시하고 전부 다시 만든다 (증분 결과가 의심스러울 때)
  */
 export function loadConfig(argv = process.argv.slice(2)) {
   const preview = argv.includes("--preview");
@@ -73,6 +79,11 @@ export function loadConfig(argv = process.argv.slice(2)) {
     outputDir: path.resolve(outputDir),
     assetsSubdir: "assets",
     skipImages: envFlag("SKIP_IMAGES") || argv.includes("--skip-images"),
+    // 상태 파일을 무시하고 전체를 다시 만든다.
+    forceFull: envFlag("FORCE_FULL") || argv.includes("--full"),
+    // 요청 사이 최소 간격(ms). 노션 제한은 통합당 평균 초당 3회다.
+    minIntervalMs: envNumber("NOTION_MIN_INTERVAL_MS", 350),
+    maxRetries: envNumber("NOTION_MAX_RETRIES", 5),
     preview,
   };
 }

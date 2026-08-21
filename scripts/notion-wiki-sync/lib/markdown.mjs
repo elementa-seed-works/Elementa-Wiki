@@ -3,8 +3,16 @@
 // 산출 문서 구조
 //   [🏠 Home](Home) › [📑 Wiki](Wiki) › **현재 문서**   ← 위치 표시
 //   # 아이콘 제목
+//   <!-- notion-sync:body -->
 //   <노션 본문>
+//   <!-- /notion-sync:body -->
 //   ## 하위 문서 / 문서 목록                              ← 직속 하위만
+//
+// 본문을 주석 마커로 감싸는 이유: 변경되지 않은 페이지는 노션을 다시 부르지 않고
+// 직전 실행이 만든 .md 에서 본문만 떼어내 재사용한다. 마커 바깥(위치 표시·하위 목록)은
+// 트리만 알면 만들 수 있으므로 매 실행 다시 만든다.
+//
+// 본문 산출 규칙을 바꾸면 state.mjs 의 RENDERER_VERSION 을 올려야 캐시된 본문이 새로 만들어진다.
 //
 // 문서 하단 공통 문구는 각 페이지에 넣지 않고 _Footer.md 하나로 처리한다.
 
@@ -13,10 +21,27 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { normalizeId } from "./notion.mjs";
+import { listAllChildren, normalizeId } from "./notion.mjs";
 
 const NOTION_HOSTS = /(?:www\.)?notion\.so|app\.notion\.com|[a-z0-9-]+\.notion\.site/i;
 const NOTION_ASSET_HOSTS = /(amazonaws\.com|notion\.so|notion-static\.com|notion\.site)/i;
+
+const BODY_START = "<!-- notion-sync:body -->";
+const BODY_END = "<!-- /notion-sync:body -->";
+
+/**
+ * 이미 만들어 둔 문서에서 본문 부분만 떼어낸다.
+ * @param {string} fileContent 직전 실행이 만든 .md 내용
+ * @returns {string|null} 마커가 없으면 null(=다시 만들어야 함)
+ */
+export function extractBody(fileContent) {
+  const text = String(fileContent || "");
+  const start = text.indexOf(BODY_START);
+  // 본문 안에 마커와 같은 문자열이 들어 있어도 잘리지 않도록 끝 마커는 마지막 것을 쓴다.
+  const end = text.lastIndexOf(BODY_END);
+  if (start < 0 || end < 0 || end < start) return null;
+  return text.slice(start + BODY_START.length, end).replace(/^\n+|\n+$/g, "");
+}
 
 export function createRenderer({ notion, ctx, config, stats, warn }) {
   const n2m = new NotionToMarkdown({ notionClient: notion });
@@ -36,35 +61,51 @@ export function createRenderer({ notion, ctx, config, stats, warn }) {
 
   const assetsDir = path.join(config.outputDir, config.assetsSubdir);
 
-  async function renderPage(node) {
-    const body = node.kind === "db" ? "" : await renderNotionBody(node);
+  /** 노션을 호출해 본문을 만든다. 변경된 페이지에만 쓴다. */
+  async function renderBody(node) {
+    if (node.kind === "db") return "";
 
-    const parts = [];
-    const crumb = breadcrumb(node);
-    if (crumb) parts.push(crumb);
-    parts.push(`# ${titleWithIcon(node)}`);
-    if (body) parts.push(body);
-    const index = renderChildIndex(node);
-    if (index) parts.push(index);
-
-    return parts.join("\n\n") + "\n";
-  }
-
-  async function renderNotionBody(node) {
     // Home 은 NOTION_HOME_PAGE_ID 가 있으면 그 페이지 내용을 쓴다.
     const sourceId = node.slug === "Home" && config.homePageId ? config.homePageId : node.id;
     let md = "";
     try {
-      const blocks = await n2m.pageToMarkdown(sourceId);
-      md = n2m.toMarkdownString(blocks).parent || "";
+      // 블록은 트리 구성 때 이미 받아둔 것이 캐시에 있다. pageToMarkdown 대신 넘겨 재조회를 막는다.
+      const blocks = await listAllChildren(notion, sourceId);
+      const parsed = await n2m.blocksToMarkdown(numberOrderedItems(blocks));
+      md = n2m.toMarkdownString(parsed).parent || "";
     } catch (e) {
       warn(`"${node.title}" 변환 실패: ${e.message}`);
       stats.pageErrors.push({ title: node.title, message: e.message });
       return `> [!WARNING]\n> 이 페이지를 마크다운으로 변환하지 못했습니다: ${e.message}`;
     }
     md = await processImages(md);
-    md = rewriteInternalLinks(md);
     return tidy(md);
+  }
+
+  /** 본문(새로 만든 것이든 캐시된 것이든)에 위치 표시·하위 목록을 붙여 문서 한 장을 만든다. */
+  function composePage(node, body) {
+    const parts = [];
+    const crumb = breadcrumb(node);
+    if (crumb) parts.push(crumb);
+    parts.push(`# ${titleWithIcon(node)}`);
+    parts.push(`${BODY_START}\n${refreshLinks(body)}\n${BODY_END}`);
+    const index = renderChildIndex(node);
+    if (index) parts.push(index);
+
+    return parts.join("\n\n") + "\n";
+  }
+
+  /**
+   * 본문에 남은 링크를 지금 트리 기준으로 맞춘다.
+   *  - 아직 노션 URL 로 남은 링크: 그 사이 위키에 생긴 문서면 슬러그로 바꾼다.
+   *  - 파일명이 바뀐 문서를 가리키는 링크: 새 파일명으로 바꾼다(캐시된 본문에 옛 이름이 남아 있다).
+   */
+  function refreshLinks(markdown) {
+    const renames = ctx.slugRenames;
+    const out = rewriteInternalLinks(markdown);
+    if (!renames?.size) return out;
+    // 한 번에 훑는다. 두 문서가 이름을 맞바꾼 경우 순차 치환하면 A→B→C 로 흘러간다.
+    return out.replace(/\]\(([^)\s]+)\)/g, (full, target) => (renames.has(target) ? `](${renames.get(target)})` : full));
   }
 
   async function processImages(markdown) {
@@ -111,7 +152,7 @@ export function createRenderer({ notion, ctx, config, stats, warn }) {
     });
   }
 
-  return { renderPage };
+  return { renderBody, composePage };
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +207,22 @@ function wikiLink(node) {
 /** 링크 텍스트/표 셀에서 마크다운 구조를 깨는 문자만 최소로 이스케이프한다. */
 function escapeMd(text) {
   return String(text).replace(/([\[\]|])/g, "\\$1");
+}
+
+/**
+ * 번호 목록 항목에 번호를 매긴다.
+ *
+ * notion-to-md 는 자기 블록 조회 경로에서만 이 번호를 채운다. 우리는 이미 받아둔 블록을
+ * 직접 넘기므로(재조회 방지) 최상위 블록의 번호는 여기서 채워야 한다. 비우면 1. 2. 3. 이 아니라
+ * 불릿으로 출력된다. 중간에 다른 블록이 끼면 번호는 1부터 다시 시작한다.
+ */
+function numberOrderedItems(blocks) {
+  let n = 0;
+  for (const block of blocks) {
+    if (block?.type === "numbered_list_item") block.numbered_list_item.number = ++n;
+    else n = 0;
+  }
+  return blocks;
 }
 
 function guessExtension(url, contentType) {

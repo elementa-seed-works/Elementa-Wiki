@@ -1,13 +1,15 @@
 {
   "name": "notion-wiki-sync",
-  "version": "1.1.0",
-  "description": "Notion 페이지를 GitHub Wiki로 주기 동기화",
+  "version": "2.0.0",
+  "description": "Notion 페이지를 GitHub Wiki로 주기 동기화 (변경된 페이지만)",
   "type": "module",
   "private": true,
   "scripts": {
     "sync": "node sync.mjs",
+    "sync:full": "node sync.mjs --full",
     "preview": "node sync.mjs --preview",
-    "preview:fast": "node sync.mjs --preview --skip-images"
+    "preview:fast": "node sync.mjs --preview --skip-images",
+    "test": "node --test"
   },
   "dependencies": {
     "@notionhq/client": "^2.2.15",

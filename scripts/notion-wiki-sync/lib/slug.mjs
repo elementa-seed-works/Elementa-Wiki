@@ -33,5 +33,15 @@ export function createSlugRegistry(reserved = ["Home", "_Sidebar", "_Footer"]) {
       used.add(slug.toLowerCase());
       return slug;
     },
+    /**
+     * 특정 슬러그를 그대로 잡는다(이전 실행에서 쓰던 파일명 유지용).
+     * @returns {boolean} 이미 쓰이고 있으면 false
+     */
+    claim(slug) {
+      const key = String(slug || "").toLowerCase();
+      if (!key || used.has(key)) return false;
+      used.add(key);
+      return true;
+    },
   };
 }
