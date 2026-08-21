@@ -209,9 +209,15 @@ export function retrieveBlock(notion, blockId) {
   return notion.blocks.retrieve({ block_id: blockId });
 }
 
-/** rich_text 배열 → 평문 */
+/**
+ * rich_text 배열 → 평문
+ *
+ * 배열이 아닌 값도 받는다. 데이터베이스 객체의 properties 는 값이 아니라 스키마여서
+ * title 속성이 `{ type: "title", title: {} }` 처럼 온다.
+ */
 export function plainText(richText) {
-  return (richText || []).map((t) => t.plain_text).join("").trim();
+  if (!Array.isArray(richText)) return "";
+  return richText.map((t) => t?.plain_text || "").join("").trim();
 }
 
 /** 페이지/데이터베이스 객체에서 제목 추출 */
@@ -244,11 +250,14 @@ export function splitLeadingEmoji(title) {
   return { icon: m[1], text: m[2].trim() || title };
 }
 
-/** 관계(relation) 속성값에서 대상 페이지 ID 배열을 꺼낸다. */
+/**
+ * 관계(relation) 속성값에서 대상 페이지 ID 배열을 꺼낸다.
+ * 스키마 쪽 relation 은 `{ database_id: ... }` 객체이므로 값(배열)일 때만 읽는다.
+ */
 export function relationIds(page, propName) {
   const prop = page?.properties?.[propName];
-  if (prop?.type !== "relation") return [];
-  return (prop.relation || []).map((r) => normalizeId(r.id));
+  if (prop?.type !== "relation" || !Array.isArray(prop.relation)) return [];
+  return prop.relation.map((r) => normalizeId(r.id));
 }
 
 /** date 속성값을 ISO 문자열(YYYY-MM-DD)로 꺼낸다. 없으면 빈 문자열. */

@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createClient, listAllChildren, normalizeId, retryDelay } from "../lib/notion.mjs";
+import {
+  createClient,
+  extractTitle,
+  listAllChildren,
+  normalizeId,
+  plainText,
+  relationIds,
+  retryDelay,
+} from "../lib/notion.mjs";
 
 const rateLimited = (retryAfter) => ({
   code: "rate_limited",
@@ -102,4 +110,33 @@ test("429 를 만나면 기다렸다가 다시 보낸다", async () => {
   assert.equal(stub.urls.length, 2);
   assert.equal(notion.apiStats.rateLimited, 1);
   assert.ok(Date.now() - started >= 1000); // Retry-After 가 0이어도 최소 백오프는 지킨다
+});
+
+test("데이터베이스 스키마의 title 속성은 배열이 아니어도 넘어간다", () => {
+  // search 가 돌려주는 데이터베이스는 properties 가 값이 아니라 스키마다.
+  // 제목이 비어 있으면 최상위 title 로 이름을 못 찾고 속성 스캔으로 내려간다.
+  const untitledDb = {
+    object: "database",
+    title: [],
+    properties: { 이름: { id: "title", name: "이름", type: "title", title: {} } },
+  };
+
+  assert.equal(extractTitle(untitledDb), "Untitled");
+});
+
+test("스키마의 relation 속성에서는 대상 ID 를 꺼내지 않는다", () => {
+  const schema = { properties: { "상위 항목": { type: "relation", relation: { database_id: "x" } } } };
+  const value = {
+    properties: { "상위 항목": { type: "relation", relation: [{ id: "37335566982b8053ace6d928bdf49f47" }] } },
+  };
+
+  assert.deepEqual(relationIds(schema, "상위 항목"), []);
+  assert.deepEqual(relationIds(value, "상위 항목"), ["37335566-982b-8053-ace6-d928bdf49f47"]);
+});
+
+test("빈 rich_text 와 없는 값은 빈 문자열이 된다", () => {
+  assert.equal(plainText([]), "");
+  assert.equal(plainText(undefined), "");
+  assert.equal(plainText({}), "");
+  assert.equal(plainText([{ plain_text: "가" }, {}]), "가");
 });
