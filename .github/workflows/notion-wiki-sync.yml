@@ -2,9 +2,18 @@ name: Notion → Wiki Sync
 
 on:
   schedule:
-    # 매시간 정각(UTC) 실행. GitHub 부하에 따라 몇 분 지연될 수 있습니다.
+    # 6시간마다 정각(UTC) 실행. GitHub 부하에 따라 몇 분 지연될 수 있습니다.
     - cron: "0 */6 * * *"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "미리보기 — 위키에 push 하지 않고 산출물을 아티팩트로만 올린다"
+        type: boolean
+        default: false
+      full_sync:
+        description: "전체 재생성 — 상태 파일을 무시하고 모든 페이지를 다시 변환한다"
+        type: boolean
+        default: false
 
 # 위키(같은 저장소의 .wiki.git)에 push 하기 위한 권한
 permissions:
@@ -53,6 +62,12 @@ jobs:
           NOTION_SKIP_IDS: ${{ vars.NOTION_SKIP_IDS }}
           WIKI_TITLE: ${{ vars.WIKI_TITLE }}
           OUTPUT_DIR: ${{ github.workspace }}/wiki
+          # 위키 저장소의 .notion-sync-state.json 을 무시하고 전부 다시 만든다.
+          # 미리보기 실행은 위키를 clone 하지 않아 상태 파일이 없으므로 항상 전체 동기화다.
+          FORCE_FULL: ${{ github.event.inputs.full_sync }}
+          # 노션 호출 간격·재시도 조정용. 미등록이면 기본값(350ms, 5회)을 쓴다.
+          NOTION_MIN_INTERVAL_MS: ${{ vars.NOTION_MIN_INTERVAL_MS }}
+          NOTION_MAX_RETRIES: ${{ vars.NOTION_MAX_RETRIES }}
         run: node sync.mjs
 
       - name: 산출물 아티팩트 업로드 (미리보기 실행)
@@ -95,8 +110,11 @@ jobs:
           CHANGED: ${{ steps.push.outputs.changed }}
           FILES_CHANGED: ${{ steps.push.outputs.files_changed }}
           ROOT_TITLE: ${{ steps.sync.outputs.root_title }}
+          MODE: ${{ steps.sync.outputs.mode }}
           PAGES_FOUND: ${{ steps.sync.outputs.pages_found }}
+          PAGES_RENDERED: ${{ steps.sync.outputs.pages_rendered }}
           FILES_WRITTEN: ${{ steps.sync.outputs.files_written }}
+          API_REQUESTS: ${{ steps.sync.outputs.api_requests }}
           PAGE_ERRORS: ${{ steps.sync.outputs.page_errors }}
           FAILED_TITLES: ${{ steps.sync.outputs.failed_titles }}
           IMAGES_DOWNLOADED: ${{ steps.sync.outputs.images_downloaded }}

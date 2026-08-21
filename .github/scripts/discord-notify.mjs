@@ -68,11 +68,13 @@ function buildEmbed({ status, changed }) {
     timestamp: new Date().toISOString(),
     fields: [
       { name: "문서", value: `${env("FILES_WRITTEN", "0")} / ${env("PAGES_FOUND", "0")}`, inline: true },
+      { name: "본문 재생성", value: `${env("PAGES_RENDERED", "0")}개`, inline: true },
       { name: "변환 실패", value: `${env("PAGE_ERRORS", "0")}건`, inline: true },
       { name: "이미지", value: `${env("IMAGES_DOWNLOADED", "0")}개`, inline: true },
+      { name: "노션 요청", value: `${env("API_REQUESTS", "0")}회`, inline: true },
       { name: "소요", value: `${env("ELAPSED_SEC", "0")}s`, inline: true },
     ],
-    footer: { text: env("ROOT_TITLE", "Notion") },
+    footer: { text: `${env("ROOT_TITLE", "Notion")} · ${env("MODE") === "full" ? "전체" : "증분"} 동기화` },
   };
 }
 
